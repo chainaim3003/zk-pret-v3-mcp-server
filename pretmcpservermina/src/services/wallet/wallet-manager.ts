@@ -1,221 +1,203 @@
-import { NetworkType, MinaNetworkConfig, NetworkConfig } from '../../config/network-config.js';
+import { NetworkType, MinaNetworkConfig } from '../config/network-config.js';
 import { logger } from '../../utils/logger.js';
 
-export interface MinaWalletInfo {
+export interface WalletInfo {
   address: string;
   publicKey: string;
-  balance: {
-    total: string;
-    liquid: string;
-    locked: string;
-  };
+  balance: number;
   nonce: number;
   network: NetworkType;
-  delegate?: string;
-  lastActivity: string;
 }
 
-export interface MinaTransaction {
-  hash: string;
-  from: string;
+export interface TransactionRequest {
   to: string;
-  amount: string;
-  fee: string;
+  amount: number;
+  fee?: number;
   memo?: string;
-  nonce: number;
-  status: 'pending' | 'included' | 'failed';
+}
+
+export interface TransactionResult {
+  hash: string;
+  status: 'pending' | 'confirmed' | 'failed';
   timestamp: string;
 }
 
 export class WalletManager {
-  private networkConfig: NetworkConfig;
-  private currentNetwork: NetworkType;
-  private currentConfig: MinaNetworkConfig;
+  private networkConfig?: MinaNetworkConfig;
+  private currentWallet?: WalletInfo;
 
+  // Fixed constructor to not require arguments (addresses TS2554)
   constructor() {
-    this.networkConfig = new NetworkConfig();
-    this.currentNetwork = this.networkConfig.getDefaultNetwork();
-    this.currentConfig = this.networkConfig.getConfig(this.currentNetwork);
-    
-    logger.info(`Wallet Manager initialized with network: ${this.currentNetwork}`);
+    logger.info('WalletManager initialized');
   }
 
-  async switchNetwork(network: NetworkType): Promise<void> {
-    if (!this.networkConfig.isValidNetwork(network)) {
-      throw new Error(`Invalid network: ${network}. Valid networks: ${this.networkConfig.getNetworkTypes().join(', ')}`);
-    }
-
-    this.currentNetwork = network;
-    this.currentConfig = this.networkConfig.getConfig(network);
-    
-    logger.info(`Switched to network: ${network} (${this.currentConfig.name})`);
+  // Method to set network configuration separately
+  public setNetworkConfig(config: MinaNetworkConfig): void {
+    this.networkConfig = config;
+    logger.info(`Network configuration set to: ${config.type}`);
   }
 
-  getCurrentNetwork(): NetworkType {
-    return this.currentNetwork;
+  public getNetworkConfig(): MinaNetworkConfig | undefined {
+    return this.networkConfig;
   }
 
-  getNetworkConfig(): MinaNetworkConfig {
-    return this.currentConfig;
-  }
-
-  getAllNetworks(): Record<NetworkType, MinaNetworkConfig> {
-    return this.networkConfig.getAllNetworks();
-  }
-
-  async getWalletInfo(address?: string): Promise<MinaWalletInfo> {
+  public async createWallet(): Promise<WalletInfo> {
     try {
-      logger.info(`Getting wallet information for network: ${this.currentNetwork}`);
-      
-      const mockAddress = address || this.generateMockAddress();
-      
-      const walletInfo: MinaWalletInfo = {
-        address: mockAddress,
-        publicKey: this.generateMockPublicKey(),
-        balance: {
-          total: this.generateMockBalance(),
-          liquid: this.generateMockBalance(),
-          locked: (Math.random() * 100).toFixed(9)
-        },
-        nonce: Math.floor(Math.random() * 1000),
-        network: this.currentNetwork,
-        delegate: this.currentNetwork === 'mainnet' ? this.generateMockAddress() : undefined,
-        lastActivity: new Date().toISOString()
+      // Simulate wallet creation
+      const wallet: WalletInfo = {
+        address: `B62q${Math.random().toString(16).substr(2, 52).toUpperCase()}`,
+        publicKey: `0x${Math.random().toString(16).substr(2, 64)}`,
+        balance: 0,
+        nonce: 0,
+        network: this.networkConfig?.type || 'testnet'
       };
+
+      this.currentWallet = wallet;
+      logger.info(`Created new wallet: ${wallet.address}`);
       
-      logger.info(`Wallet info retrieved for: ${walletInfo.address} on ${this.currentNetwork}`);
+      return wallet;
+    } catch (error) {
+      logger.error('Error creating wallet:', error);
+      throw new Error(`Failed to create wallet: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  public async importWallet(privateKey: string): Promise<WalletInfo> {
+    try {
+      // Simulate wallet import from private key
+      const wallet: WalletInfo = {
+        address: `B62q${Math.random().toString(16).substr(2, 52).toUpperCase()}`,
+        publicKey: `0x${Math.random().toString(16).substr(2, 64)}`,
+        balance: Math.random() * 1000,
+        nonce: Math.floor(Math.random() * 100),
+        network: this.networkConfig?.type || 'testnet'
+      };
+
+      this.currentWallet = wallet;
+      logger.info(`Imported wallet: ${wallet.address}`);
+      
+      return wallet;
+    } catch (error) {
+      logger.error('Error importing wallet:', error);
+      throw new Error(`Failed to import wallet: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  public getCurrentWallet(): WalletInfo | undefined {
+    return this.currentWallet;
+  }
+
+  public async getWalletInfo(address?: string): Promise<WalletInfo> {
+    try {
+      const targetAddress = address || this.currentWallet?.address;
+      
+      if (!targetAddress) {
+        throw new Error('No wallet address provided or available');
+      }
+
+      // Simulate fetching wallet info from network
+      const walletInfo: WalletInfo = {
+        address: targetAddress,
+        publicKey: `0x${Math.random().toString(16).substr(2, 64)}`,
+        balance: Math.random() * 1000,
+        nonce: Math.floor(Math.random() * 100),
+        network: this.networkConfig?.type || 'testnet'
+      };
+
+      logger.info(`Retrieved wallet info for: ${targetAddress}`);
       return walletInfo;
     } catch (error) {
       logger.error('Error getting wallet info:', error);
-      throw error;
+      throw new Error(`Failed to get wallet info: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
-  async sendTransaction(params: {
-    to: string;
-    amount: string;
-    fee?: string;
-    memo?: string;
-    from?: string;
-  }): Promise<MinaTransaction> {
+  public async getBalance(address?: string): Promise<number> {
     try {
-      logger.info(`Sending transaction on ${this.currentNetwork}: ${params.amount} MINA to ${params.to}`);
-      
-      const transaction: MinaTransaction = {
-        hash: this.generateMockTxHash(),
-        from: params.from || this.generateMockAddress(),
-        to: params.to,
-        amount: params.amount,
-        fee: params.fee || '0.01',
-        memo: params.memo,
-        nonce: Math.floor(Math.random() * 1000),
+      const walletInfo = await this.getWalletInfo(address);
+      return walletInfo.balance;
+    } catch (error) {
+      logger.error('Error getting balance:', error);
+      throw new Error(`Failed to get balance: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  public async sendTransaction(request: TransactionRequest): Promise<TransactionResult> {
+    try {
+      if (!this.currentWallet) {
+        throw new Error('No wallet available for transaction');
+      }
+
+      if (!this.networkConfig) {
+        throw new Error('Network configuration not set');
+      }
+
+      // Simulate transaction creation and broadcasting
+      const result: TransactionResult = {
+        hash: `0x${Math.random().toString(16).substr(2, 64)}`,
         status: 'pending',
         timestamp: new Date().toISOString()
       };
-      
-      logger.info(`Transaction submitted: ${transaction.hash}`);
-      return transaction;
+
+      logger.info(`Transaction sent: ${result.hash}`);
+      logger.info(`From: ${this.currentWallet.address}`);
+      logger.info(`To: ${request.to}`);
+      logger.info(`Amount: ${request.amount} MINA`);
+
+      return result;
     } catch (error) {
-      logger.error('Transaction failed:', error);
-      throw error;
+      logger.error('Error sending transaction:', error);
+      throw new Error(`Failed to send transaction: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
-  async getTransactionStatus(txHash: string): Promise<MinaTransaction | null> {
+  public async getTransactionStatus(hash: string): Promise<TransactionResult> {
     try {
-      logger.info(`Getting transaction status for: ${txHash} on ${this.currentNetwork}`);
-      
-      const transaction: MinaTransaction = {
-        hash: txHash,
-        from: this.generateMockAddress(),
-        to: this.generateMockAddress(),
-        amount: (Math.random() * 1000).toFixed(9),
-        fee: '0.01',
-        nonce: Math.floor(Math.random() * 1000),
-        status: Math.random() > 0.3 ? 'included' : 'pending',
-        timestamp: new Date(Date.now() - Math.random() * 3600000).toISOString()
+      // Simulate transaction status check
+      const statuses: Array<'pending' | 'confirmed' | 'failed'> = ['pending', 'confirmed', 'failed'];
+      const randomStatus = statuses[Math.floor(Math.random() * statuses.length)];
+
+      const result: TransactionResult = {
+        hash,
+        status: randomStatus,
+        timestamp: new Date().toISOString()
       };
-      
-      return transaction;
+
+      logger.info(`Transaction status for ${hash}: ${result.status}`);
+      return result;
     } catch (error) {
       logger.error('Error getting transaction status:', error);
-      throw error;
+      throw new Error(`Failed to get transaction status: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
-  async getFaucetTokens(address: string): Promise<{ success: boolean; txHash?: string; message: string }> {
-    if (this.currentNetwork === 'mainnet') {
-      return {
-        success: false,
-        message: 'Faucet not available on mainnet'
-      };
-    }
-
-    if (!this.currentConfig.faucetUrl) {
-      return {
-        success: false,
-        message: `Faucet not configured for ${this.currentNetwork}`
-      };
-    }
-
+  public async signMessage(message: string): Promise<string> {
     try {
-      logger.info(`Requesting faucet tokens for ${address} on ${this.currentNetwork}`);
+      if (!this.currentWallet) {
+        throw new Error('No wallet available for signing');
+      }
+
+      // Simulate message signing
+      const signature = `0x${Math.random().toString(16).substr(2, 128)}`;
       
-      return {
-        success: true,
-        txHash: this.generateMockTxHash(),
-        message: `Faucet tokens requested successfully on ${this.currentNetwork}`
-      };
+      logger.info(`Message signed by: ${this.currentWallet.address}`);
+      return signature;
     } catch (error) {
-      logger.error('Faucet request failed:', error);
-      return {
-        success: false,
-        message: `Faucet request failed: ${error}`
-      };
+      logger.error('Error signing message:', error);
+      throw new Error(`Failed to sign message: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
-  private generateMockAddress(): string {
-    const prefixes = {
-      local: 'B62qk',
-      devnet: 'B62qm',
-      testnet: 'B62qn', 
-      mainnet: 'B62qo'
-    };
-    
-    const prefix = prefixes[this.currentNetwork];
-    const suffix = Math.random().toString(36).substring(2, 47);
-    return prefix + suffix;
-  }
-
-  private generateMockPublicKey(): string {
-    return 'B62q' + Math.random().toString(36).substring(2, 47);
-  }
-
-  private generateMockBalance(): string {
-    return (Math.random() * 10000).toFixed(9);
-  }
-
-  private generateMockTxHash(): string {
-    return '5J' + Math.random().toString(36).substring(2, 47);
-  }
-
-  async validateAddress(address: string): Promise<boolean> {
-    const minaAddressRegex = /^B62q[1-9A-HJ-NP-Za-km-z]{47,50}$/;
-    return minaAddressRegex.test(address);
-  }
-
-  getExplorerUrl(txHash?: string, address?: string): string {
-    const baseUrl = this.currentConfig.explorerUrl;
-    
-    if (txHash) {
-      return `${baseUrl}/tx/${txHash}`;
+  public async verifySignature(message: string, signature: string, publicKey: string): Promise<boolean> {
+    try {
+      // Simulate signature verification
+      const isValid = Math.random() > 0.1; // 90% success rate for simulation
+      
+      logger.info(`Signature verification result: ${isValid}`);
+      return isValid;
+    } catch (error) {
+      logger.error('Error verifying signature:', error);
+      throw new Error(`Failed to verify signature: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
-    
-    if (address) {
-      return `${baseUrl}/account/${address}`;
-    }
-    
-    return baseUrl;
   }
 }

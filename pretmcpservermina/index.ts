@@ -4,7 +4,7 @@ import { Server, ServerOptions } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { logger } from './src/utils/logger.js';
 import { WalletManager } from './src/services/wallet/wallet-manager.js';
-import { NetworkConfig, NetworkType } from './src/config/network-config.js';
+import { NetworkConfig, NetworkType } from './src/services/config/network-config.js';
 
 async function main() {
   const serverOptions: ServerOptions = {

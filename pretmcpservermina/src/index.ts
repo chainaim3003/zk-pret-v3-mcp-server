@@ -1,135 +1,108 @@
-import { Server, ServerOptions } from '@modelcontextprotocol/sdk/server/index.js';
-import { logger } from './utils/logger.js';
-import { startStdioServer } from '../src/server/stdio-server.js';
-import { startSSEServer } from '../src/server/sse-server.js';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+// Note: StreamableHTTPServerTransport may not be available in all SDK versions
+// import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
+import { NetworkType, MinaNetworkConfig } from './services/config/network-config.js';
+import { WalletManager } from './services/wallet/wallet-manager.js';
+import { ZKPretMCPServer } from './server/zkpret-mcp-server.js';
 
-interface ServerConfig {
-  mode: 'stdio' | 'sse';
+interface ServerOptions {
+  transport: 'stdio' | 'sse';
   port?: number;
-  host?: string;
-  logLevel?: 'debug' | 'info' | 'warn' | 'error';
+  network?: NetworkType;
 }
 
-function parseArgs(): ServerConfig {
+function parseArgs(): ServerOptions {
   const args = process.argv.slice(2);
-  const config: ServerConfig = {
-    mode: 'stdio',
-    port: 3000,
-    host: 'localhost',
-    logLevel: 'info'
+  const options: ServerOptions = {
+    transport: 'stdio',
+    network: 'testnet'
   };
 
   for (let i = 0; i < args.length; i++) {
     switch (args[i]) {
-      case '--mode':
-        const mode = args[++i];
-        if (mode === 'stdio' || mode === 'sse') {
-          config.mode = mode;
+      case '--transport':
+        const transport = args[++i] as 'stdio' | 'sse';
+        if (['stdio', 'sse'].includes(transport)) {
+          options.transport = transport;
         }
         break;
       case '--port':
-        config.port = parseInt(args[++i]) || 3000;
+        options.port = parseInt(args[++i]);
         break;
-      case '--host':
-        config.host = args[++i] || 'localhost';
-        break;
-      case '--log-level':
-        const level = args[++i];
-        if (['debug', 'info', 'warn', 'error'].includes(level)) {
-          config.logLevel = level as any;
+      case '--network':
+        const network = args[++i] as NetworkType;
+        if (['mainnet', 'testnet'].includes(network)) {
+          options.network = network;
         }
         break;
-      case '--help':
-        console.log(`
-ZK-PRET MCP Server
-
-Usage: zkpret-mcp-server [options]
-
-Options:
-  --mode <stdio|sse>    Server mode (default: stdio)
-  --port <number>       Port for SSE mode (default: 3000)
-  --host <string>       Host for SSE mode (default: localhost)
-  --log-level <level>   Log level (default: info)
-  --help               Show this help message
-
-Environment Variables:
-  MCP_SERVER_MODE      Override mode setting
-  PORT                 Override port setting
-  LOG_LEVEL           Override log level setting
-        `);
-        process.exit(0);
     }
   }
 
-  // Environment variable overrides
-  if (process.env.MCP_SERVER_MODE) {
-    const envMode = process.env.MCP_SERVER_MODE;
-    if (envMode === 'stdio' || envMode === 'sse') {
-      config.mode = envMode;
-    }
-  }
-
-  if (process.env.PORT) {
-    config.port = parseInt(process.env.PORT) || config.port;
-  }
-
-  if (process.env.LOG_LEVEL) {
-    const envLevel = process.env.LOG_LEVEL;
-    if (['debug', 'info', 'warn', 'error'].includes(envLevel)) {
-      config.logLevel = envLevel as any;
-    }
-  }
-
-  return config;
+  return options;
 }
 
 async function main() {
-  const config = parseArgs();
+  const options = parseArgs();
   
-  // Set log level
-  logger.setLevel(config.logLevel);
-
-  try {
-    logger.info(`Starting ZK-PRET MCP Server in ${config.mode} mode...`);
-    
-    if (config.mode === 'sse') {
-      await startSSEServer({
-        port: config.port!,
-        host: config.host!
-      });
-    } else {
-      await startStdioServer();
+  // Create network configuration
+  const networkConfig: MinaNetworkConfig = {
+    type: options.network || 'testnet',
+    mina: {
+      networkId: options.network === 'mainnet' ? 'mainnet' : 'testnet',
+      minaEndpoint: options.network === 'mainnet' 
+        ? 'https://proxy.berkeley.minaexplorer.com'
+        : 'https://proxy.berkeley.minaexplorer.com',
+      archiveEndpoint: options.network === 'mainnet'
+        ? 'https://archive.berkeley.minaexplorer.com'
+        : 'https://archive.berkeley.minaexplorer.com'
     }
-  } catch (error) {
-    logger.error('Failed to start server:', error);
-    process.exit(1);
+  };
+
+  // Initialize wallet manager without arguments (fix for TS2554)
+  const walletManager = new WalletManager();
+  
+  // Create the ZK-PRET MCP server
+  const zkPretServer = new ZKPretMCPServer(networkConfig, walletManager);
+
+  let transport;
+  const port = options.port || 3000;
+
+  switch (options.transport) {
+    case 'stdio':
+      console.log('Starting ZK-PRET MCP Server with STDIO transport...');
+      await zkPretServer.startStdio();
+      break;
+    case 'sse':
+      console.log(`Starting ZK-PRET MCP Server with SSE transport on port ${port}...`);
+      await zkPretServer.startSSE(port);
+      break;
+    default:
+      throw new Error(`Unsupported transport: ${options.transport}`);
   }
+  
+  console.log('ZK-PRET MCP Server is running...');
+  console.log(`Network: ${networkConfig.type}`);
+  console.log(`Transport: ${options.transport}`);
+  
+  // Handle graceful shutdown
+  process.on('SIGINT', async () => {
+    console.log('\nShutting down ZK-PRET MCP Server...');
+    await zkPretServer.stop();
+    process.exit(0);
+  });
+
+  process.on('SIGTERM', async () => {
+    console.log('\nShutting down ZK-PRET MCP Server...');
+    await zkPretServer.stop();
+    process.exit(0);
+  });
 }
 
-// Graceful shutdown handling
-process.on('SIGINT', () => {
-  logger.info('Received SIGINT, shutting down gracefully...');
-  process.exit(0);
-});
-
-process.on('SIGTERM', () => {
-  logger.info('Received SIGTERM, shutting down gracefully...');
-  process.exit(0);
-});
-
-process.on('uncaughtException', (error) => {
-  logger.error('Uncaught exception:', error);
-  process.exit(1);
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-  logger.error('Unhandled rejection at:', promise, 'reason:', reason);
-  process.exit(1);
-});
-
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (require.main === module) {
   main().catch((error) => {
-    logger.error('Unhandled error in main:', error);
+    console.error('Fatal error starting ZK-PRET MCP Server:', error);
     process.exit(1);
   });
 }
