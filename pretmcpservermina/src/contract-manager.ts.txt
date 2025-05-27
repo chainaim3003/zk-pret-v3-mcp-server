@@ -1,0 +1,359 @@
+import { SmartContract, State, state, method, PublicKey, Field, Mina, AccountUpdate, Permissions, DeployArgs } from 'o1js';
+import { MinaNetworkConfig, NetworkType } from '../config/network-config.js';
+import { WalletManager } from './wallet-manager.js';
+import { logger } from '../utils/logger.js';
+
+// Import contract classes
+import { ComplianceContract } from '../contracts/compliance-contract.js';
+import { GLEIFContract } from '../contracts/gleif-contract.js';
+import { EXIMContract } from '../contracts/exim-contract.js';
+import { BPMNContract } from '../contracts/bpmn-contract.js';
+import { ActusContract } from '../contracts/actus-contract.js';
+import { DataIntegrityContract } from '../contracts/data-integrity-contract.js';
+
+export type ContractType = 'compliance' | 'gleif' | 'exim' | 'bpmn' | 'actus' | 'data_integrity';
+
+export interface DeploymentResult {
+  contractAddress: string;
+  transactionHash: string;
+  status: 'success' | 'pending' | 'failed';
+  verificationKeyHash?: string;
+  deploymentTime: number;
+}
+
+export interface CompilationResult {
+  verificationKeyHash: string;
+  compilationTime: number;
+  contractSize: number;
+}
+
+export interface ContractState {
+  address: string;
+  balance: string;
+  nonce: number;
+  timing: any;
+  permissions: any;
+  appState: Field[];
+  isDeployed: boolean;
+  lastUpdated: Date;
+}
+
+export class ContractManager {
+  private compiledContracts: Map<ContractType, any> = new Map();
+  private deployedContracts: Map<string, SmartContract> = new Map();
+
+  constructor(
+    private networkConfig: MinaNetworkConfig,
+    private walletManager: WalletManager
+  ) {}
+
+  async initialize(): Promise<void> {
+    try {
+      logger.info('Initializing Contract Manager...');
+      
+      // Set up Mina network
+      const Network = Mina.Network(this.networkConfig.graphqlEndpoint);
+      Mina.setActiveInstance(Network);
+      
+      logger.info('Contract Manager initialized successfully');
+    } catch (error) {
+      logger.error('Failed to initialize Contract Manager:', error);
+      throw error;
+    }
+  }
+
+  async compileContract(contractType: ContractType): Promise<CompilationResult> {
+    const startTime = Date.now();
+    
+    try {
+      logger.info(`Compiling ${contractType} contract...`);
+      
+      let ContractClass: typeof SmartContract;
+      
+      switch (contractType) {
+        case 'compliance':
+          ContractClass = ComplianceContract;
+          break;
+        case 'gleif':
+          ContractClass = GLEIFContract;
+          break;
+        case 'exim':
+          ContractClass = EXIMContract;
+          break;
+        case 'bpmn':
+          ContractClass = BPMNContract;
+          break;
+        case 'actus':
+          ContractClass = ActusContract;
+          break;
+        case 'data_integrity':
+          ContractClass = DataIntegrityContract;
+          break;
+        default:
+          throw new Error(`Unknown contract type: ${contractType}`);
+      }
+
+      const { verificationKey } = await ContractClass.compile();
+      
+      // Store compiled contract
+      this.compiledContracts.set(contractType, {
+        ContractClass,
+        verificationKey
+      });
+      
+      const compilationTime = Date.now() - startTime;
+      const verificationKeyHash = verificationKey.hash.toString();
+      
+      logger.info(`Contract ${contractType} compiled successfully`, {
+        compilationTime,
+        verificationKeyHash
+      });
+      
+      return {
+        verificationKeyHash,
+        compilationTime,
+        contractSize: JSON.stringify(verificationKey).length
+      };
+    } catch (error) {
+      logger.error(`Failed to compile ${contractType} contract:`, error);
+      throw error;
+    }
+  }
+
+  async deployContract(
+    contractType: ContractType,
+    network: NetworkType,
+    initParams: any = {}
+  ): Promise<DeploymentResult> {
+    const startTime = Date.now();
+    
+    try {
+      logger.info(`Deploying ${contractType} contract to ${network}...`);
+      
+      // Switch network if needed
+      if (network !== this.walletManager.getCurrentNetwork()) {
+        await this.walletManager.switchNetwork(network);
+      }
+      
+      // Compile contract if not already compiled
+      if (!this.compiledContracts.has(contractType)) {
+        await this.compileContract(contractType);
+      }
+      
+      const { ContractClass, verificationKey } = this.compiledContracts.get(contractType)!;
+      
+      // Generate contract key pair
+      const contractPrivateKey = await import('o1js').then(({ PrivateKey }) => PrivateKey.random());
+      const contractPublicKey = contractPrivateKey.toPublicKey();
+      
+      // Create contract instance
+      const contract = new ContractClass(contractPublicKey);
+      
+      // Get deployer account
+      const deployerKey = this.walletManager.getPublicKey();
+      
+      // Create deploy transaction
+      const deployTx = await Mina.transaction({ sender: deployerKey }, async () => {
+        AccountUpdate.fundNewAccount(deployerKey);
+        await contract.deploy({
+          verificationKey,
+          zkappKey: contractPrivateKey
+        } as DeployArgs);
+        
+        // Initialize contract state if needed
+        if (initParams && Object.keys(initParams).length > 0) {
+          await this.initializeContractState(contract, contractType, initParams);
+        }
+      });
+      
+      // Sign and send transaction
+      const signedTx = await this.walletManager.signTransaction(deployTx);
+      const txHash = await signedTx.send();
+      
+      // Store deployed contract
+      const contractAddress = contractPublicKey.toBase58();
+      this.deployedContracts.set(contractAddress, contract);
+      
+      const deploymentTime = Date.now() - startTime;
+      
+      logger.info(`Contract ${contractType} deployed successfully`, {
+        contractAddress,
+        txHash: txHash.hash(),
+        deploymentTime
+      });
+      
+      return {
+        contractAddress,
+        transactionHash: txHash.hash(),
+        status: 'success',
+        verificationKeyHash: verificationKey.hash.toString(),
+        deploymentTime
+      };
+    } catch (error) {
+      logger.error(`Failed to deploy ${contractType} contract:`, error);
+      throw error;
+    }
+  }
+
+  private async initializeContractState(
+    contract: SmartContract,
+    contractType: ContractType,
+    initParams: any
+  ): Promise<void> {
+    // Initialize contract-specific state based on type
+    switch (contractType) {
+      case 'compliance':
+        if (initParams.complianceLevel) {
+          await (contract as ComplianceContract).setComplianceLevel(Field(initParams.complianceLevel));
+        }
+        break;
+      case 'gleif':
+        if (initParams.registryRoot) {
+          await (contract as GLEIFContract).setRegistryRoot(Field(initParams.registryRoot));
+        }
+        break;
+      case 'exim':
+        if (initParams.tradeThreshold) {
+          await (contract as EXIMContract).setTradeThreshold(Field(initParams.tradeThreshold));
+        }
+        break;
+      case 'bpmn':
+        if (initParams.processRoot) {
+          await (contract as BPMNContract).setProcessRoot(Field(initParams.processRoot));
+        }
+        break;
+      case 'actus':
+        if (initParams.liquidityThreshold) {
+          await (contract as ActusContract).setLiquidityThreshold(Field(initParams.liquidityThreshold));
+        }
+        break;
+      case 'data_integrity':
+        if (initParams.integrityRoot) {
+          await (contract as DataIntegrityContract).setIntegrityRoot(Field(initParams.integrityRoot));
+        }
+        break;
+    }
+  }
+
+  async getContractState(
+    contractAddress: string,
+    network: NetworkType
+  ): Promise<ContractState> {
+    try {
+      // Switch network if needed
+      if (network !== this.walletManager.getCurrentNetwork()) {
+        await this.walletManager.switchNetwork(network);
+      }
+      
+      const publicKey = PublicKey.fromBase58(contractAddress);
+      const account = await Mina.getAccount(publicKey);
+      
+      return {
+        address: contractAddress,
+        balance: account.balance.toString(),
+        nonce: Number(account.nonce.toString()),
+        timing: account.timing,
+        permissions: account.permissions,
+        appState: account.zkapp?.appState || [],
+        isDeployed: !!account.zkapp,
+        lastUpdated: new Date()
+      };
+    } catch (error) {
+      logger.error(`Failed to get contract state for ${contractAddress}:`, error);
+      throw error;
+    }
+  }
+
+  async callContractMethod(
+    contractAddress: string,
+    methodName: string,
+    args: any[] = [],
+    network?: NetworkType
+  ): Promise<string> {
+    try {
+      // Switch network if needed
+      if (network && network !== this.walletManager.getCurrentNetwork()) {
+        await this.walletManager.switchNetwork(network);
+      }
+      
+      const contract = this.deployedContracts.get(contractAddress);
+      if (!contract) {
+        throw new Error(`Contract not found: ${contractAddress}`);
+      }
+      
+      const senderKey = this.walletManager.getPublicKey();
+      
+      // Create transaction
+      const tx = await Mina.transaction({ sender: senderKey }, async () => {
+        const method = (contract as any)[methodName];
+        if (!method) {
+          throw new Error(`Method ${methodName} not found on contract`);
+        }
+        await method.apply(contract, args);
+      });
+      
+      // Sign and send transaction
+      const signedTx = await this.walletManager.signTransaction(tx);
+      const txHash = await signedTx.send();
+      
+      logger.info(`Contract method ${methodName} called successfully`, {
+        contractAddress,
+        txHash: txHash.hash()
+      });
+      
+      return txHash.hash();
+    } catch (error) {
+      logger.error(`Failed to call contract method ${methodName}:`, error);
+      throw error;
+    }
+  }
+
+  async getContractInstance(contractAddress: string): Promise<SmartContract | undefined> {
+    return this.deployedContracts.get(contractAddress);
+  }
+
+  async loadContract(
+    contractAddress: string,
+    contractType: ContractType
+  ): Promise<SmartContract> {
+    try {
+      // Compile contract if not already compiled
+      if (!this.compiledContracts.has(contractType)) {
+        await this.compileContract(contractType);
+      }
+      
+      const { ContractClass } = this.compiledContracts.get(contractType)!;
+      const publicKey = PublicKey.fromBase58(contractAddress);
+      const contract = new ContractClass(publicKey);
+      
+      // Store for future use
+      this.deployedContracts.set(contractAddress, contract);
+      
+      return contract;
+    } catch (error) {
+      logger.error(`Failed to load contract ${contractAddress}:`, error);
+      throw error;
+    }
+  }
+
+  getCompiledContracts(): Map<ContractType, any> {
+    return this.compiledContracts;
+  }
+
+  getDeployedContracts(): Map<string, SmartContract> {
+    return this.deployedContracts;
+  }
+
+  async cleanup(): Promise<void> {
+    try {
+      logger.info('Cleaning up Contract Manager...');
+      
+      this.compiledContracts.clear();
+      this.deployedContracts.clear();
+      
+      logger.info('Contract Manager cleanup completed');
+    } catch (error) {
+      logger.error('Error during Contract Manager cleanup:', error);
+    }
+  }
+}
