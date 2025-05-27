@@ -1,104 +1,21 @@
 {
   "compilerOptions": {
-    /* Language and Environment */
     "target": "ES2022",
-    "lib": ["ES2022", "DOM"],
     "module": "ESNext",
-    "moduleResolution": "node",
-    
-    /* Bundler Mode */
-    "allowImportingTsExtensions": false,
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "noEmit": false,
-    
-    /* JavaScript Support */
-    "allowJs": true,
-    "checkJs": false,
-    
-    /* Emit */
-    "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true,
-    "outDir": "./build",
-    "rootDir": "./src",
-    "removeComments": false,
-    "importHelpers": true,
-    "downlevelIteration": true,
-    
-    /* Interop Constraints */
-    "esModuleInterop": true,
+    "moduleResolution": "Node",
     "allowSyntheticDefaultImports": true,
-    "forceConsistentCasingInFileNames": true,
-    
-    /* Type Checking */
+    "esModuleInterop": true,
+    "allowJs": true,
+    "outDir": "./dist",
+    "rootDir": "./src",
     "strict": true,
-    "noImplicitAny": true,
-    "strictNullChecks": true,
-    "strictFunctionTypes": true,
-    "strictBindCallApply": true,
-    "strictPropertyInitialization": true,
-    "noImplicitThis": true,
-    "useUnknownInCatchVariables": true,
-    "alwaysStrict": true,
-    "noUnusedLocals": false,
-    "noUnusedParameters": false,
-    "exactOptionalPropertyTypes": false,
-    "noImplicitReturns": true,
-    "noFallthroughCasesInSwitch": true,
-    "noUncheckedIndexedAccess": false,
-    "noImplicitOverride": true,
-    "noPropertyAccessFromIndexSignature": false,
-    
-    /* Completeness */
+    "noImplicitAny": false,
+    "declaration": true,
     "skipLibCheck": true,
-    "skipDefaultLibCheck": true,
-    
-    /* Advanced Options */
-    "experimentalDecorators": true,
-    "emitDecoratorMetadata": true,
-    "baseUrl": "./",
-    "paths": {
-      "@/*": ["src/*"],
-      "@contracts/*": ["src/contracts/*"],
-      "@services/*": ["src/services/*"],
-      "@utils/*": ["src/utils/*"],
-      "@types/*": ["src/types/*"],
-      "@config/*": ["src/config/*"],
-      "@server/*": ["src/server/*"],
-      "@integrations/*": ["src/integrations/*"],
-      "@tests/*": ["tests/*"]
-    },
-    "typeRoots": [
-      "node_modules/@types",
-      "src/types"
-    ],
-    "types": [
-      "node",
-      "jest"
-    ]
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "types": ["node"]
   },
-  "include": [
-    "src/**/*",
-    "tests/**/*",
-    "scripts/**/*"
-  ],
-  "exclude": [
-    "node_modules",
-    "build",
-    "dist",
-    "coverage",
-    "logs",
-    "**/*.test.ts",
-    "**/*.spec.ts"
-  ],
-  "ts-node": {
-    "esm": true,
-    "experimentalSpecifierResolution": "node",
-    "compilerOptions": {
-      "module": "ESNext",
-      "target": "ES2022"
-    }
-  }
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "**/*.test.ts"]
 }
-    

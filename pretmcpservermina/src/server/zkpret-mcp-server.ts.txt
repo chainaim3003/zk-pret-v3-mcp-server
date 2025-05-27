@@ -1,19 +1,100 @@
+ ===============================
+// src/index.ts - Fixed for MCP SDK v1.7.0
+// ===============================
 #!/usr/bin/env node
 
-import { Server, ServerOptions } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { createMcpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { logger } from './src/utils/logger.js';
-import { WalletManager } from './src/services/wallet/wallet-manager.js';
-import { NetworkConfig, NetworkType } from './src/config/network-config.js';
+import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
+import { logger } from './services/utils/logger.js';
+import { WalletManager } from './services/wallet/wallet-manager.js';
+import { NetworkConfig, NetworkType } from './services/config/network-config.js';
 
 async function main() {
-  const serverOptions: ServerOptions = {
+  const mode = process.env.MCP_SERVER_MODE || 'stdio';
+  const port = parseInt(process.env.PORT || '3000');
+
+  try {
+    if (mode === 'sse') {
+      logger.info(`Starting ZK-PRET MCP Server in SSE mode on port ${port}`);
+      await startSSEServer(port);
+    } else {
+      logger.info('Starting ZK-PRET MCP Server in STDIO mode');
+      await startStdioServer();
+    }
+  } catch (error) {
+    logger.error('Failed to start server:', error);
+    process.exit(1);
+  }
+}
+
+async function startStdioServer() {
+  const server = createMcpServer({
     name: 'zkpret-mcp-server-mina',
     version: '1.0.0',
-  };
+  });
 
-  const server = new Server(serverOptions);
+  // Register all tools
+  registerAllTools(server);
 
+  // Connect to STDIO transport
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+  
+  logger.info('ZK-PRET MCP Server started successfully in STDIO mode');
+}
+
+async function startSSEServer(port: number) {
+  const server = createMcpServer({
+    name: 'zkpret-mcp-server-mina',
+    version: '1.0.0',
+  });
+
+  // Register all tools
+  registerAllTools(server);
+
+  // Create SSE transport
+  const transport = new SSEServerTransport('/events');
+  await server.connect(transport);
+
+  // Create HTTP server separately
+  const http = require('http');
+  const httpServer = http.createServer((req: any, res: any) => {
+    if (req.url === '/health') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ 
+        status: 'healthy', 
+        timestamp: new Date().toISOString(),
+        server: 'ZK-PRET MCP Server',
+        version: '1.0.0'
+      }));
+    } else if (req.url === '/') {
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(`
+        <html>
+          <head><title>ZK-PRET MCP Server</title></head>
+          <body>
+            <h1>ZK-PRET MCP Server</h1>
+            <p>Server is running on port ${port}</p>
+            <p>Health check: <a href="/health">/health</a></p>
+            <p>SSE Events: <a href="/events">/events</a></p>
+          </body>
+        </html>
+      `);
+    } else {
+      res.writeHead(404);
+      res.end('Not Found');
+    }
+  });
+
+  httpServer.listen(port, () => {
+    logger.info(`ZK-PRET MCP SSE Server running on port ${port}`);
+  });
+
+  return server;
+}
+
+function registerAllTools(server: any) {
   // Test connection tool
   server.tool('test_connection', {
     description: 'Test the MCP server connection',
@@ -30,7 +111,6 @@ async function main() {
   }, async (args: { message?: string }) => {
     const message = args.message || 'Hello ZK-PRET!';
     logger.info(`Test connection received: ${message}`);
-    
     return {
       success: true,
       message: `Server responded: ${message}`,
@@ -38,12 +118,13 @@ async function main() {
       serverInfo: {
         name: 'ZK-PRET MCP Server',
         version: '1.0.0',
-        capabilities: ['compliance', 'proofs', 'verification', 'mina-networks']
+        capabilities: ['compliance', 'proofs', 'verification', 'mina-networks'],
+        sdk_version: '1.7.0'
       }
     };
   });
 
-  // Network management tools
+  // Network Management Tools
   server.tool('network_list_all', {
     description: 'List all available Mina networks (local, devnet, testnet, mainnet)',
     parameters: {
@@ -134,7 +215,7 @@ async function main() {
     };
   });
 
-  // Wallet management tools
+  // Wallet Tools with Mina Network Support
   server.tool('wallet_get_info', {
     description: 'Get wallet information with Mina network support',
     parameters: {
@@ -219,6 +300,7 @@ async function main() {
         await walletManager.switchNetwork(args.network as NetworkType);
       }
       
+      // Validate addresses
       if (!(await walletManager.validateAddress(args.to))) {
         throw new Error('Invalid recipient address');
       }
@@ -318,6 +400,7 @@ async function main() {
         await walletManager.switchNetwork(args.network as NetworkType);
       }
       
+      // Validate address
       if (!(await walletManager.validateAddress(args.address))) {
         throw new Error('Invalid Mina address');
       }
@@ -366,7 +449,7 @@ async function main() {
     }
   });
 
-  // ZK-PRET Compliance and verification tools
+  // ZK-PRET Compliance Tools
   server.tool('compliance_verify_multi_level', {
     description: 'Verify multi-level compliance using ZK proofs',
     parameters: {
@@ -555,45 +638,7 @@ async function main() {
     }
   });
 
-  server.tool('verify_zk_proof', {
-    description: 'Verify a zero-knowledge proof',
-    parameters: {
-      type: 'object',
-      properties: {
-        proof: { 
-          type: 'string', 
-          description: 'Proof to verify' 
-        },
-        publicSignals: { 
-          type: 'array', 
-          items: { type: 'string' },
-          description: 'Public signals for verification' 
-        }
-      },
-      required: ['proof', 'publicSignals']
-    }
-  }, async (args: { proof: string; publicSignals: string[] }) => {
-    try {
-      logger.info(`Verifying ZK proof: ${args.proof}`);
-      
-      return {
-        success: true,
-        proof: args.proof,
-        publicSignals: args.publicSignals,
-        valid: Math.random() > 0.1,
-        verifiedAt: new Date().toISOString()
-      };
-    } catch (error) {
-      logger.error('ZK proof verification failed:', error);
-      throw new Error(`ZK proof verification failed: ${error}`);
-    }
-  });
-
-  // Connect to STDIO transport
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
-  
-  logger.info('ZK-PRET MCP Server started successfully using Server and server.tool');
+  logger.info('All tools registered successfully for MCP SDK v1.7.0');
 }
 
 // Handle graceful shutdown

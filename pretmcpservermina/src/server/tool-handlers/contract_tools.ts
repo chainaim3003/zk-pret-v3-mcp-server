@@ -1,5 +1,5 @@
 import { Tool, CallToolResult, TextContent } from '@modelcontextprotocol/sdk/types.js';
-import { ContractManager } from '../../services/contracts/contract-manager.js';
+//import { ContractManager } from '../../services/contracts/contract-manager.js';
 import { NetworkType } from '../../config/network-config.js';
 import { logger } from '../../utils/logger.js';
 import { z } from 'zod';
