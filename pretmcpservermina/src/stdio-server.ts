@@ -1,323 +1,425 @@
-#!/usr/bin/env node
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { fileURLToPath } from 'url';
 import { z } from 'zod';
 
-// Create MCP Server
-const server = new McpServer({
-  name: 'ZK-PRET MCP Server',
-  version: '1.0.0'
-});
+// Get current file path for ES modules
+const __filename = fileURLToPath(import.meta.url);
 
-// Test Connection Tool
-server.tool(
-  'test_connection',
-  {
-    description: z.string().optional()
-  },
-  async (args: { description?: string }) => {
+/**
+ * ZK-PRET MCP Server
+ * A Model Context Protocol server for ZK proof generation and verification
+ */
+class ZkPretMcpServer {
+  private server: McpServer;
+
+  constructor() {
+    this.server = new McpServer({
+      name: 'zk-pret-mcp-server',
+      version: '1.0.0'
+    });
+    
+    this.setupTools();
+    this.setupResources();
+    this.setupPrompts();
+  }
+
+  /**
+   * Setup tools for ZK proof operations
+   */
+  private setupTools(): void {
+    // ZK Proof Generation Tool
+    this.server.tool(
+      'generate_zk_proof',
+      'Generate a zero-knowledge proof for a given circuit',
+      {
+        circuit: z.string().describe('The circuit definition or path'),
+        inputs: z.record(z.any()).describe('Input values for the circuit'),
+        options: z.object({
+          backend: z.enum(['plonk', 'groth16', 'marlin']).optional().default('plonk'),
+          curve: z.enum(['bn254', 'bls12_381']).optional().default('bn254')
+        }).optional().default({})
+      },
+      async ({ circuit, inputs, options = {} }) => {
+        try {
+          // TODO: Implement actual ZK proof generation
+          const proof = await this.generateProof(circuit, inputs, options);
+          
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                success: true,
+                proof: proof,
+                publicInputs: inputs,
+                timestamp: new Date().toISOString()
+              }, null, 2)
+            }]
+          };
+        } catch (error) {
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                success: false,
+                error: error instanceof Error ? error.message : String(error),
+                timestamp: new Date().toISOString()
+              }, null, 2)
+            }]
+          };
+        }
+      }
+    );
+
+    // ZK Proof Verification Tool
+    this.server.tool(
+      'verify_zk_proof',
+      'Verify a zero-knowledge proof',
+      {
+        proof: z.string().describe('The proof to verify'),
+        verificationKey: z.string().describe('The verification key'),
+        publicInputs: z.record(z.any()).describe('Public inputs for verification')
+      },
+      async ({ proof, verificationKey, publicInputs }) => {
+        try {
+          // TODO: Implement actual ZK proof verification
+          const isValid = await this.verifyProof(proof, verificationKey, publicInputs);
+          
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                success: true,
+                valid: isValid,
+                timestamp: new Date().toISOString()
+              }, null, 2)
+            }]
+          };
+        } catch (error) {
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                success: false,
+                error: error instanceof Error ? error.message : String(error),
+                timestamp: new Date().toISOString()
+              }, null, 2)
+            }]
+          };
+        }
+      }
+    );
+
+    // Circuit Compilation Tool
+    this.server.tool(
+      'compile_circuit',
+      'Compile a ZK circuit from source code',
+      {
+        source: z.string().describe('Circuit source code'),
+        language: z.enum(['circom', 'zokrates', 'noir']).describe('Circuit language'),
+        outputPath: z.string().optional().describe('Output path for compiled circuit')
+      },
+      async ({ source, language, outputPath }) => {
+        try {
+          // TODO: Implement circuit compilation
+          const compiled = await this.compileCircuit(source, language, outputPath);
+          
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                success: true,
+                compiled: compiled,
+                timestamp: new Date().toISOString()
+              }, null, 2)
+            }]
+          };
+        } catch (error) {
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                success: false,
+                error: error instanceof Error ? error.message : String(error),
+                timestamp: new Date().toISOString()
+              }, null, 2)
+            }]
+          };
+        }
+      }
+    );
+  }
+
+  /**
+   * Setup resources for accessing ZK-related data
+   */
+  private setupResources(): void {
+    // Circuit templates resource
+    this.server.resource(
+      'circuit_templates',
+      'List of available ZK circuit templates',
+      async () => {
+        const templates = [
+          {
+            name: 'merkle_proof',
+            description: 'Merkle tree inclusion proof circuit',
+            inputs: ['leaf', 'path', 'root']
+          },
+          {
+            name: 'signature_verification',
+            description: 'Digital signature verification circuit',
+            inputs: ['message', 'signature', 'publicKey']
+          },
+          {
+            name: 'range_proof',
+            description: 'Range proof circuit for private values',
+            inputs: ['value', 'min', 'max']
+          }
+        ];
+
+        return {
+          contents: [{
+            uri: 'zk-pret://circuit_templates',
+            mimeType: 'application/json',
+            text: JSON.stringify(templates, null, 2)
+          }]
+        };
+      }
+    );
+
+    // Proof history resource
+    this.server.resource(
+      'proof_history',
+      'History of generated proofs',
+      async () => {
+        // TODO: Implement actual proof history retrieval
+        const history = await this.getProofHistory();
+        
+        return {
+          contents: [{
+            uri: 'zk-pret://proof_history',
+            mimeType: 'application/json',
+            text: JSON.stringify(history, null, 2)
+          }]
+        };
+      }
+    );
+  }
+
+  /**
+   * Setup prompts for ZK operations
+   */
+  private setupPrompts(): void {
+    this.server.prompt(
+      'zk_proof_guide',
+      'Guide for generating ZK proofs',
+      {
+        circuit_type: z.string().describe('Type of circuit to generate proof for')
+      },
+      async ({ circuit_type }) => {
+        const guide = this.getProofGuide(circuit_type);
+        
+        return {
+          description: `Guide for generating ${circuit_type} ZK proof`,
+          messages: [{
+            role: 'user',
+            content: {
+              type: 'text',
+              text: guide
+            }
+          }]
+        };
+      }
+    );
+  }
+
+  /**
+   * Generate ZK proof (placeholder implementation)
+   */
+  private async generateProof(circuit: string, inputs: Record<string, any>, options: Record<string, any>): Promise<any> {
+    // TODO: Implement actual proof generation using your ZK library
+    console.error(`[ZK-PRET] Generating proof for circuit: ${circuit}`);
+    console.error(`[ZK-PRET] Inputs: ${JSON.stringify(inputs)}`);
+    console.error(`[ZK-PRET] Options: ${JSON.stringify(options)}`);
+    
+    // Simulate async operation
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
+    // Placeholder return
     return {
-      content: [{
-        type: 'text',
-        text: `ZK-PRET MCP Server is running! ${args.description || 'Connection test successful.'}`
-      }]
+      proof: 'placeholder_proof_data_' + Date.now(),
+      publicSignals: Object.keys(inputs),
+      proofSystem: options.backend || 'plonk',
+      curve: options.curve || 'bn254'
     };
   }
-);
 
-// Contract Deploy Tool
-server.tool(
-  'contract_deploy',
-  {
-    contractName: z.string(),
-    constructorArgs: z.array(z.string()).optional(),
-    networkId: z.enum(['mainnet', 'testnet']).optional()
-  },
-  async (args: { contractName: string; constructorArgs?: string[]; networkId?: 'mainnet' | 'testnet' }) => {
-    try {
-      // Simulate contract deployment
-      const deploymentResult = {
-        contractAddress: `B62q${Math.random().toString(16).substr(2, 48)}`,
-        transactionHash: `0x${Math.random().toString(16).substr(2, 64)}`,
-        network: args.networkId || 'testnet',
-        status: 'deployed'
-      };
-
-      return {
-        content: [{
-          type: 'text',
-          text: `Contract ${args.contractName} deployed successfully!\n` +
-                `Address: ${deploymentResult.contractAddress}\n` +
-                `Transaction: ${deploymentResult.transactionHash}\n` +
-                `Network: ${deploymentResult.network}`
-        }]
-      };
-    } catch (error) {
-      return {
-        content: [{
-          type: 'text',
-          text: `Error deploying contract: ${error instanceof Error ? error.message : 'Unknown error'}`
-        }],
-        isError: true
-      };
-    }
+  /**
+   * Verify ZK proof (placeholder implementation)
+   */
+  private async verifyProof(proof: string, verificationKey: string, publicInputs: Record<string, any>): Promise<boolean> {
+    // TODO: Implement actual proof verification
+    console.error(`[ZK-PRET] Verifying proof: ${proof.substring(0, 50)}...`);
+    console.error(`[ZK-PRET] Verification key: ${verificationKey.substring(0, 50)}...`);
+    console.error(`[ZK-PRET] Public inputs: ${JSON.stringify(publicInputs)}`);
+    
+    // Simulate async operation
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
+    // Placeholder return
+    return true;
   }
-);
 
-// Compliance Verification Tool
-server.tool(
-  'compliance_verify_multi_level',
-  {
-    entityId: z.string(),
-    verificationType: z.enum(['KYC', 'AML', 'SANCTIONS', 'PEP']),
-    jurisdictions: z.array(z.string()).optional()
-  },
-  async (args: { entityId: string; verificationType: 'KYC' | 'AML' | 'SANCTIONS' | 'PEP'; jurisdictions?: string[] }) => {
-    try {
-      // Simulate compliance verification
-      const verificationResult = {
-        entityId: args.entityId,
-        type: args.verificationType,
-        status: Math.random() > 0.5 ? 'PASSED' : 'FLAGGED',
+  /**
+   * Compile circuit (placeholder implementation)
+   */
+  private async compileCircuit(source: string, language: string, outputPath?: string): Promise<any> {
+    // TODO: Implement actual circuit compilation
+    console.error(`[ZK-PRET] Compiling ${language} circuit`);
+    console.error(`[ZK-PRET] Source length: ${source.length} characters`);
+    console.error(`[ZK-PRET] Output path: ${outputPath || 'default'}`);
+    
+    // Simulate async operation
+    await new Promise(resolve => setTimeout(resolve, 200));
+    
+    // Placeholder return
+    return {
+      wasm: 'compiled_circuit.wasm',
+      zkey: 'circuit_final.zkey',
+      vkey: 'verification_key.json',
+      language: language,
+      compiledAt: new Date().toISOString()
+    };
+  }
+
+  /**
+   * Get proof history (placeholder implementation)
+   */
+  private async getProofHistory(): Promise<any[]> {
+    // TODO: Implement actual proof history retrieval
+    return [
+      {
+        id: '1',
+        circuit: 'merkle_proof',
         timestamp: new Date().toISOString(),
-        jurisdictions: args.jurisdictions || ['US', 'EU']
-      };
-
-      return {
-        content: [{
-          type: 'text',
-          text: `Compliance verification completed for ${args.entityId}\n` +
-                `Type: ${verificationResult.type}\n` +
-                `Status: ${verificationResult.status}\n` +
-                `Jurisdictions: ${verificationResult.jurisdictions.join(', ')}\n` +
-                `Timestamp: ${verificationResult.timestamp}`
-        }]
-      };
-    } catch (error) {
-      return {
-        content: [{
-          type: 'text',
-          text: `Error in compliance verification: ${error instanceof Error ? error.message : 'Unknown error'}`
-        }],
-        isError: true
-      };
-    }
+        status: 'completed',
+        proofSystem: 'plonk'
+      },
+      {
+        id: '2',
+        circuit: 'signature_verification',
+        timestamp: new Date(Date.now() - 3600000).toISOString(),
+        status: 'completed',
+        proofSystem: 'groth16'
+      }
+    ];
   }
-);
 
-// BPMN Process Verification Tool
-server.tool(
-  'bpmn_verify_process',
-  {
-    processId: z.string(),
-    processDefinition: z.string(),
-    validationRules: z.array(z.string()).optional()
-  },
-  async (args: { processId: string; processDefinition: string; validationRules?: string[] }) => {
+  /**
+   * Get proof generation guide
+   */
+  private getProofGuide(circuitType: string): string {
+    const guides: Record<string, string> = {
+      merkle_proof: `
+To generate a Merkle proof:
+1. Prepare your leaf data
+2. Construct the Merkle tree
+3. Generate the inclusion proof path
+4. Call generate_zk_proof with the circuit and inputs
+
+Example:
+{
+  "circuit": "merkle_proof",
+  "inputs": {
+    "leaf": "0x123...",
+    "path": ["0xabc...", "0xdef..."],
+    "root": "0x789..."
+  }
+}
+      `,
+      signature_verification: `
+To generate a signature verification proof:
+1. Prepare the message to be verified
+2. Obtain the signature and public key
+3. Call generate_zk_proof with signature verification circuit
+
+Example:
+{
+  "circuit": "signature_verification",
+  "inputs": {
+    "message": "Hello World",
+    "signature": "0x456...",
+    "publicKey": "0x012..."
+  }
+}
+      `,
+      range_proof: `
+To generate a range proof:
+1. Define the private value and range bounds
+2. Prepare the range proof circuit
+3. Call generate_zk_proof with range constraints
+
+Example:
+{
+  "circuit": "range_proof",
+  "inputs": {
+    "value": 25,
+    "min": 18,
+    "max": 65
+  }
+}
+      `
+    };
+
+    return guides[circuitType] || `
+Guide for ${circuitType} ZK proofs:
+1. Define your circuit logic
+2. Prepare the input parameters
+3. Choose appropriate proof system (plonk, groth16, marlin)
+4. Generate the proof using generate_zk_proof tool
+5. Verify the proof using verify_zk_proof tool
+
+For more specific guidance, try one of these circuit types:
+- merkle_proof
+- signature_verification
+- range_proof
+    `;
+  }
+
+  /**
+   * Start the MCP server
+   */
+  public async start(): Promise<void> {
     try {
-      // Simulate BPMN process verification
-      const verificationResult = {
-        processId: args.processId,
-        isValid: Math.random() > 0.3,
-        issues: Math.random() > 0.5 ? [] : ['Missing start event', 'Unreachable end event'],
-        timestamp: new Date().toISOString()
-      };
-
-      return {
-        content: [{
-          type: 'text',
-          text: `BPMN Process verification completed for ${args.processId}\n` +
-                `Valid: ${verificationResult.isValid}\n` +
-                `Issues: ${verificationResult.issues.length > 0 ? verificationResult.issues.join(', ') : 'None'}\n` +
-                `Timestamp: ${verificationResult.timestamp}`
-        }]
-      };
+      const transport = new StdioServerTransport();
+      await this.server.connect(transport);
+      console.error('[ZK-PRET] MCP server started and listening on stdio');
     } catch (error) {
-      return {
-        content: [{
-          type: 'text',
-          text: `Error in BPMN verification: ${error instanceof Error ? error.message : 'Unknown error'}`
-        }],
-        isError: true
-      };
+      console.error('[ZK-PRET] Failed to start server:', error);
+      throw error;
     }
   }
-);
-
-// ACTUS Basel III Verification Tool
-server.tool(
-  'actus_verify_basel3',
-  {
-    contractId: z.string(),
-    riskParameters: z.record(z.number()).optional(),
-    complianceLevel: z.enum(['BASEL_I', 'BASEL_II', 'BASEL_III']).optional()
-  },
-  async (args: { contractId: string; riskParameters?: Record<string, number>; complianceLevel?: 'BASEL_I' | 'BASEL_II' | 'BASEL_III' }) => {
-    try {
-      // Simulate ACTUS Basel III verification
-      const verificationResult = {
-        contractId: args.contractId,
-        complianceLevel: args.complianceLevel || 'BASEL_III',
-        riskScore: Math.random() * 100,
-        isCompliant: Math.random() > 0.2,
-        timestamp: new Date().toISOString()
-      };
-
-      return {
-        content: [{
-          type: 'text',
-          text: `ACTUS Basel III verification completed for ${args.contractId}\n` +
-                `Compliance Level: ${verificationResult.complianceLevel}\n` +
-                `Risk Score: ${verificationResult.riskScore.toFixed(2)}\n` +
-                `Compliant: ${verificationResult.isCompliant}\n` +
-                `Timestamp: ${verificationResult.timestamp}`
-        }]
-      };
-    } catch (error) {
-      return {
-        content: [{
-          type: 'text',
-          text: `Error in ACTUS verification: ${error instanceof Error ? error.message : 'Unknown error'}`
-        }],
-        isError: true
-      };
-    }
-  }
-);
-
-// ZK-PRET Test Runner Tool
-server.tool(
-  'test_run_all_zkpret',
-  {
-    testSuite: z.string().optional(),
-    includeIntegration: z.boolean().optional()
-  },
-  async (args: { testSuite?: string; includeIntegration?: boolean }) => {
-    try {
-      // Simulate test execution
-      const testResults = {
-        suite: args.testSuite || 'all',
-        passed: Math.floor(Math.random() * 50) + 50,
-        failed: Math.floor(Math.random() * 5),
-        duration: Math.floor(Math.random() * 30) + 10,
-        timestamp: new Date().toISOString()
-      };
-
-      return {
-        content: [{
-          type: 'text',
-          text: `ZK-PRET Test Suite Results\n` +
-                `Suite: ${testResults.suite}\n` +
-                `Passed: ${testResults.passed}\n` +
-                `Failed: ${testResults.failed}\n` +
-                `Duration: ${testResults.duration}s\n` +
-                `Timestamp: ${testResults.timestamp}`
-        }]
-      };
-    } catch (error) {
-      return {
-        content: [{
-          type: 'text',
-          text: `Error running tests: ${error instanceof Error ? error.message : 'Unknown error'}`
-        }],
-        isError: true
-      };
-    }
-  }
-);
-
-// ZK Proof Generation Tool
-server.tool(
-  'generate_zk_proof',
-  {
-    circuit: z.string(),
-    publicInputs: z.array(z.string()),
-    privateInputs: z.array(z.string()).optional()
-  },
-  async (args: { circuit: string; publicInputs: string[]; privateInputs?: string[] }) => {
-    try {
-      // Simulate ZK proof generation
-      const proofResult = {
-        circuit: args.circuit,
-        proof: `0x${Math.random().toString(16).substr(2, 128)}`,
-        publicInputs: args.publicInputs,
-        verificationKey: `0x${Math.random().toString(16).substr(2, 64)}`,
-        timestamp: new Date().toISOString()
-      };
-
-      return {
-        content: [{
-          type: 'text',
-          text: `ZK Proof generated successfully\n` +
-                `Circuit: ${proofResult.circuit}\n` +
-                `Proof: ${proofResult.proof}\n` +
-                `Public Inputs: ${proofResult.publicInputs.join(', ')}\n` +
-                `Verification Key: ${proofResult.verificationKey}\n` +
-                `Timestamp: ${proofResult.timestamp}`
-        }]
-      };
-    } catch (error) {
-      return {
-        content: [{
-          type: 'text',
-          text: `Error generating ZK proof: ${error instanceof Error ? error.message : 'Unknown error'}`
-        }],
-        isError: true
-      };
-    }
-  }
-);
-
-// Wallet Info Tool
-server.tool(
-  'wallet_get_info',
-  {
-    address: z.string().optional()
-  },
-  async (args: { address?: string }) => {
-    try {
-      // Simulate wallet info retrieval
-      const walletInfo = {
-        address: args.address || `B62q${Math.random().toString(16).substr(2, 52)}`,
-        balance: Math.random() * 1000,
-        nonce: Math.floor(Math.random() * 100),
-        network: 'testnet',
-        timestamp: new Date().toISOString()
-      };
-
-      return {
-        content: [{
-          type: 'text',
-          text: `Wallet Information\n` +
-                `Address: ${walletInfo.address}\n` +
-                `Balance: ${walletInfo.balance.toFixed(6)} MINA\n` +
-                `Nonce: ${walletInfo.nonce}\n` +
-                `Network: ${walletInfo.network}\n` +
-                `Timestamp: ${walletInfo.timestamp}`
-        }]
-      };
-    } catch (error) {
-      return {
-        content: [{
-          type: 'text',
-          text: `Error retrieving wallet info: ${error instanceof Error ? error.message : 'Unknown error'}`
-        }],
-        isError: true
-      };
-    }
-  }
-);
-
-// Start the server with STDIO transport only
-async function main() {
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
-  console.error('ZK-PRET MCP Server started with STDIO transport');
 }
 
-if (require.main === module) {
+/**
+ * Main function to start the server
+ */
+async function main(): Promise<void> {
+  try {
+    const zkPretServer = new ZkPretMcpServer();
+    await zkPretServer.start();
+  } catch (error) {
+    console.error('[ZK-PRET] Failed to start ZK-PRET MCP server:', error);
+    process.exit(1);
+  }
+}
+
+// Check if this file is being run directly
+if (process.argv[1] === __filename) {
   main().catch((error) => {
-    console.error('Error starting server:', error);
+    console.error('[ZK-PRET] Unhandled error in main:', error);
     process.exit(1);
   });
 }
+
+export { ZkPretMcpServer, main };
